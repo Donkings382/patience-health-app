@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-background text-slate-900 font-sans;
+}
+
+.touch-target {
+  @apply min-h-[44px] min-w-[44px];
+}
