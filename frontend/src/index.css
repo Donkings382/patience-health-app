@@ -6,6 +6,32 @@ body {
   @apply bg-background text-slate-900 font-sans;
 }
 
+/* ── Touch target utility ─────────────────────────────── */
 .touch-target {
   @apply min-h-[44px] min-w-[44px];
+}
+
+/* ── Glass card utility ───────────────────────────────── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.05);
+}
+
+/* ── Page fade-in animation ───────────────────────────── */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out both;
 }

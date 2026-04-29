@@ -1,10 +1,14 @@
 import React, { useState } from "react";
-import { Mail, Lock, User, Heart } from "lucide-react";
+import { Mail, Lock, User, Heart, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const { login, signup } = useAuth();
   const [isSignIn, setIsSignIn] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -13,14 +17,42 @@ const LoginPage: React.FC = () => {
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError(null);
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleTabSwitch = (signIn: boolean) => {
+    setIsSignIn(signIn);
+    setError(null);
+    setFormData({ name: "", email: "", password: "", confirmPassword: "" });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Form submitted:", formData);
-    // Simulate successful login/signup and navigate to dashboard
-    navigate("/dashboard");
+    setError(null);
+
+    if (!isSignIn && formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    if (!isSignIn && formData.password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (isSignIn) {
+        await login(formData.email, formData.password);
+      } else {
+        await signup(formData.name, formData.email, formData.password);
+      }
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -36,7 +68,7 @@ const LoginPage: React.FC = () => {
       <div className="w-full max-w-md bg-white rounded-3xl shadow-sm p-8 border border-slate-100">
         <div className="flex bg-slate-100 p-1 rounded-xl mb-8">
           <button
-            onClick={() => setIsSignIn(true)}
+            onClick={() => handleTabSwitch(true)}
             className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
               isSignIn ? "bg-white shadow-sm text-primary" : "text-slate-500"
             }`}
@@ -44,7 +76,7 @@ const LoginPage: React.FC = () => {
             Sign In
           </button>
           <button
-            onClick={() => setIsSignIn(false)}
+            onClick={() => handleTabSwitch(false)}
             className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
               !isSignIn ? "bg-white shadow-sm text-primary" : "text-slate-500"
             }`}
@@ -54,6 +86,13 @@ const LoginPage: React.FC = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Error banner */}
+          {error && (
+            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs font-medium text-red-600">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {error}
+            </div>
+          )}
           {!isSignIn && (
             <div className="relative">
               <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
@@ -112,9 +151,10 @@ const LoginPage: React.FC = () => {
 
           <button
             type="submit"
-            className="w-full py-4 bg-primary text-white font-semibold rounded-xl shadow-lg shadow-primary/20 hover:bg-blue-700 active:scale-[0.98] transition-all mt-4"
+            disabled={loading}
+            className="w-full py-4 bg-primary text-white font-semibold rounded-xl shadow-lg shadow-primary/20 hover:bg-blue-700 active:scale-[0.98] transition-all mt-4 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {isSignIn ? "Sign In" : "Create Account"}
+            {loading ? "Please wait…" : isSignIn ? "Sign In" : "Create Account"}
           </button>
         </form>
 
@@ -125,32 +165,6 @@ const LoginPage: React.FC = () => {
             </button>
           </div>
         )}
-      </div>
-
-      <div className="mt-8 text-center">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">
-          Quick Access (Guest View)
-        </p>
-        <div className="flex gap-4 justify-center">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 shadow-sm hover:border-primary hover:text-primary transition-all"
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => navigate("/logs")}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 shadow-sm hover:border-primary hover:text-primary transition-all"
-          >
-            Health Logs
-          </button>
-          <button
-            onClick={() => navigate("/profile")}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 shadow-sm hover:border-primary hover:text-primary transition-all"
-          >
-            Profile
-          </button>
-        </div>
       </div>
     </div>
   );

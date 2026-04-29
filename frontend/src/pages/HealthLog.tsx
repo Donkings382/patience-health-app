@@ -11,7 +11,10 @@ import {
   Filter,
   ChevronRight,
   FileText,
+  Pill,
+  CheckCircle2,
 } from "lucide-react";
+import { useHealthPlan } from "../hooks/useHealthPlan";
 
 interface HealthEntry {
   id: string;
@@ -23,7 +26,17 @@ interface HealthEntry {
   status: "Normal" | "Elevated" | "Low";
 }
 
+const today = new Date().toLocaleDateString("en-US", {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+});
+
 const HealthLog: React.FC = () => {
+  const { supplements } = useHealthPlan();
+  const takenCount = supplements.filter((s) => s.taken).length;
+  const totalCount = supplements.length;
+
   const [entries, setEntries] = useState<HealthEntry[]>([
     {
       id: "1",
@@ -78,17 +91,12 @@ const HealthLog: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (
-      window.confirm("Are you sure you want to delete this clinical record?")
-    ) {
+    if (window.confirm("Are you sure you want to delete this clinical record?")) {
       setEntries(entries.filter((e) => e.id !== id));
     }
   };
 
-  const calculateStatus = (
-    systolic: string,
-    glucose: string,
-  ): "Normal" | "Elevated" | "Low" => {
+  const calculateStatus = (systolic: string, glucose: string): "Normal" | "Elevated" | "Low" => {
     const s = parseInt(systolic);
     const g = parseInt(glucose);
     if (s > 140 || g > 120) return "Elevated";
@@ -100,34 +108,25 @@ const HealthLog: React.FC = () => {
     e.preventDefault();
     const status = calculateStatus(formData.systolic, formData.glucose);
     if (editingEntry) {
-      setEntries(
-        entries.map((e) =>
-          e.id === editingEntry.id ? { ...formData, id: e.id, status } : e,
-        ),
-      );
+      setEntries(entries.map((e) => (e.id === editingEntry.id ? { ...formData, id: e.id, status } : e)));
     } else {
-      setEntries([
-        { ...formData, id: Math.random().toString(36).substr(2, 9), status },
-        ...entries,
-      ]);
+      setEntries([{ ...formData, id: Math.random().toString(36).substr(2, 9), status }, ...entries]);
     }
     setIsModalOpen(false);
   };
 
   return (
-    <div className="pb-24 min-h-screen bg-slate-50">
+    <div className="pb-24 min-h-screen bg-slate-50 animate-fade-in">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-1">
           <div>
             <h1 className="text-xl font-bold text-slate-900">Health History</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-              Clinical Records
-            </p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{today}</p>
           </div>
           <button
             onClick={() => handleOpenModal()}
-            className="w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center shadow-lg shadow-primary/20 active:scale-95 transition-transform"
+            className="w-10 h-10 min-h-[44px] min-w-[44px] bg-primary text-white rounded-full flex items-center justify-center shadow-lg shadow-primary/20 active:scale-[0.98] transition-transform duration-150"
           >
             <Plus className="w-6 h-6" />
           </button>
@@ -143,13 +142,49 @@ const HealthLog: React.FC = () => {
               className="w-full pl-9 pr-4 py-2 bg-slate-100 border-none rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/20 outline-none transition-all"
             />
           </div>
-          <button className="p-2 bg-slate-100 rounded-xl text-slate-500">
+          <button className="p-2 min-h-[44px] min-w-[44px] bg-slate-100 rounded-xl text-slate-500 flex items-center justify-center active:scale-[0.98] transition-transform duration-150">
             <Filter className="w-4 h-4" />
           </button>
         </div>
       </header>
 
-      <main className="p-6">
+      <main className="p-6 space-y-4">
+        {/* Supplement Adherence */}
+        <section className="glass-card rounded-2xl overflow-hidden">
+          <div className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
+              <Pill className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Today's Supplement Adherence
+              </p>
+              <p className="text-sm font-bold text-slate-900 mt-0.5">
+                You have taken <span className="text-primary">{takenCount}</span> of{" "}
+                <span className="text-slate-700">{totalCount}</span> supplements today
+              </p>
+              <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ width: totalCount ? `${(takenCount / totalCount) * 100}%` : "0%" }}
+                />
+              </div>
+            </div>
+            {takenCount === totalCount && totalCount > 0 && (
+              <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+            )}
+          </div>
+          <button
+            onClick={() => console.log("View all supplement history")}
+            className="w-full py-2.5 min-h-[44px] bg-slate-50 border-t border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center gap-1 active:scale-[0.98] transition-transform duration-150 hover:bg-slate-100"
+          >
+            View all supplement history <ChevronRight className="w-3 h-3" />
+          </button>
+        </section>
+
+        {/* Section label */}
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Clinical Records</p>
+
         {entries.length === 0 ? (
           <div className="text-center py-20">
             <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -158,18 +193,13 @@ const HealthLog: React.FC = () => {
             <p className="text-slate-500 font-medium text-sm">
               No health logs found.
               <br />
-              <span className="text-xs text-slate-400">
-                Start by adding your first clinical entry.
-              </span>
+              <span className="text-xs text-slate-400">Start by adding your first clinical entry.</span>
             </p>
           </div>
         ) : (
           <div className="space-y-4">
             {entries.map((entry) => (
-              <div
-                key={entry.id}
-                className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"
-              >
+              <div key={entry.id} className="glass-card rounded-2xl overflow-hidden">
                 <div className="p-5">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-center gap-3">
@@ -189,8 +219,8 @@ const HealthLog: React.FC = () => {
                             entry.status === "Normal"
                               ? "bg-green-50 text-green-600"
                               : entry.status === "Elevated"
-                                ? "bg-amber-50 text-amber-600"
-                                : "bg-blue-50 text-blue-600"
+                              ? "bg-amber-50 text-amber-600"
+                              : "bg-blue-50 text-blue-600"
                           }`}
                         >
                           {entry.status}
@@ -200,13 +230,13 @@ const HealthLog: React.FC = () => {
                     <div className="flex gap-1">
                       <button
                         onClick={() => handleOpenModal(entry)}
-                        className="p-2 text-slate-300 hover:text-primary transition-colors"
+                        className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-300 hover:text-primary active:scale-[0.98] transition-all duration-150"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(entry.id)}
-                        className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                        className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-300 hover:text-red-500 active:scale-[0.98] transition-all duration-150"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -219,14 +249,10 @@ const HealthLog: React.FC = () => {
                         <Activity className="w-4 h-4" />
                       </div>
                       <div>
-                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">
-                          BP
-                        </p>
+                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">BP</p>
                         <p className="text-sm font-bold text-slate-900">
                           {entry.systolic}/{entry.diastolic}{" "}
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            mmHg
-                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium">mmHg</span>
                         </p>
                       </div>
                     </div>
@@ -235,14 +261,10 @@ const HealthLog: React.FC = () => {
                         <Droplets className="w-4 h-4" />
                       </div>
                       <div>
-                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">
-                          Glucose
-                        </p>
+                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Glucose</p>
                         <p className="text-sm font-bold text-slate-900">
                           {entry.glucose}{" "}
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            mg/dL
-                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium">mg/dL</span>
                         </p>
                       </div>
                     </div>
@@ -251,13 +273,11 @@ const HealthLog: React.FC = () => {
                   {entry.notes && (
                     <div className="mt-4 flex items-start gap-2">
                       <FileText className="w-3 h-3 text-slate-300 mt-0.5" />
-                      <p className="text-xs text-slate-500 italic leading-relaxed">
-                        {entry.notes}
-                      </p>
+                      <p className="text-xs text-slate-500 italic leading-relaxed">{entry.notes}</p>
                     </div>
                   )}
                 </div>
-                <button className="w-full py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center gap-1 hover:bg-slate-100 transition-colors border-t border-slate-100">
+                <button className="w-full py-2 min-h-[44px] bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center gap-1 hover:bg-slate-100 active:scale-[0.98] transition-all duration-150 border-t border-slate-100">
                   Full Report <ChevronRight className="w-3 h-3" />
                 </button>
               </div>
@@ -266,7 +286,7 @@ const HealthLog: React.FC = () => {
         )}
       </main>
 
-      {/* Modal Redesign */}
+      {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/40 backdrop-blur-md">
           <div className="w-full max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300">
@@ -287,96 +307,82 @@ const HealthLog: React.FC = () => {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-5">
-              <div className="grid grid-cols-1 gap-5">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                    Observation Date
-                  </label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type="date"
-                      value={formData.date}
-                      onChange={(e) =>
-                        setFormData({ ...formData, date: e.target.value })
-                      }
-                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 text-blue-600">
-                      Systolic (mmHg)
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="120"
-                      value={formData.systolic}
-                      onChange={(e) =>
-                        setFormData({ ...formData, systolic: e.target.value })
-                      }
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 text-blue-400">
-                      Diastolic (mmHg)
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="80"
-                      value={formData.diastolic}
-                      onChange={(e) =>
-                        setFormData({ ...formData, diastolic: e.target.value })
-                      }
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 text-teal-600">
-                    Glucose Level (mg/dL)
-                  </label>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                  Observation Date
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
-                    type="number"
-                    placeholder="95"
-                    value={formData.glucose}
-                    onChange={(e) =>
-                      setFormData({ ...formData, glucose: e.target.value })
-                    }
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
                     required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                    Clinical Notes
-                  </label>
-                  <textarea
-                    placeholder="Describe any symptoms or observations..."
-                    value={formData.notes}
-                    onChange={(e) =>
-                      setFormData({ ...formData, notes: e.target.value })
-                    }
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all h-24 resize-none"
                   />
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-2">
+                    Systolic (mmHg)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="120"
+                    value={formData.systolic}
+                    onChange={(e) => setFormData({ ...formData, systolic: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">
+                    Diastolic (mmHg)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="80"
+                    value={formData.diastolic}
+                    onChange={(e) => setFormData({ ...formData, diastolic: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-teal-600 uppercase tracking-widest mb-2">
+                  Glucose Level (mg/dL)
+                </label>
+                <input
+                  type="number"
+                  placeholder="95"
+                  value={formData.glucose}
+                  onChange={(e) => setFormData({ ...formData, glucose: e.target.value })}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                  Clinical Notes
+                </label>
+                <textarea
+                  placeholder="Describe any symptoms or observations..."
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all h-24 resize-none"
+                />
+              </div>
+
               <button
                 type="submit"
-                className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all mt-4 uppercase tracking-widest text-xs"
+                className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all uppercase tracking-widest text-xs"
               >
-                {editingEntry
-                  ? "Update Clinical Record"
-                  : "Save Clinical Record"}
+                {editingEntry ? "Update Clinical Record" : "Save Clinical Record"}
               </button>
             </form>
           </div>
