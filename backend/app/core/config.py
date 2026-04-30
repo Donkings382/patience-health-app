@@ -5,7 +5,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-super-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    DATABASE_URL: str = "sqlite:///./health.db"
+    DATABASE_URL: str = "sqlite:///./health.db"  # overridden by env var in production
+    FRONTEND_URL: str = "http://localhost:5173"  # overridden by env var in production
 
     class Config:
         env_file = ".env"
