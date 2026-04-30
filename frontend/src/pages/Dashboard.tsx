@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Activity,
   Droplets,
@@ -26,6 +26,9 @@ import { useHealthPlan } from "../hooks/useHealthPlan";
 import { ScheduleItem } from "../types/healthPlan";
 import HealthLogModal from "../components/HealthLogModal";
 import { useAuth } from "../contexts/AuthContext";
+import { dashboardApi, healthLogsApi, DashboardData, HealthLogEntry } from "../services/api";
+
+// ─── Icons helpers ────────────────────────────────────────────────────────────
 
 const scheduleTypeIcon = (type: ScheduleItem["type"]) => {
   switch (type) {
@@ -45,20 +48,35 @@ const scheduleTypeColor = (type: ScheduleItem["type"]) => {
   }
 };
 
-// ─── Trends chart ────────────────────────────────────────────────────────────
+// ─── Trends chart ─────────────────────────────────────────────────────────────
 
-const CHART_DATA = {
-  bp:      { label: "Systolic BP", unit: "mmHg", color: "bg-primary",    values: [122, 118, 125, 130, 128, 120, 122] },
-  glucose: { label: "Glucose",     unit: "mg/dL", color: "bg-teal-500",  values: [105,  98, 110, 102, 108,  95, 101] },
-} as const;
+type TrendsChartProps = {
+  logs: HealthLogEntry[];
+};
 
-type Metric = keyof typeof CHART_DATA;
-const DAYS = ["M", "T", "W", "T", "F", "S", "S"] as const;
+const dayLetter = (iso: string) =>
+  ["S", "M", "T", "W", "T", "F", "S"][new Date(iso).getDay()];
 
-const TrendsChart: React.FC = () => {
-  const [metric, setMetric] = useState<Metric>("bp");
-  const active = CHART_DATA[metric];
-  const max = Math.max(...active.values);
+const TrendsChart: React.FC<TrendsChartProps> = ({ logs }) => {
+  const [metric, setMetric] = useState<"bp" | "glucose">("bp");
+
+  // Logs come newest-first from API — reverse for left-to-right chronological display
+  const ordered = [...logs].reverse();
+
+  const bpValues = ordered.map((l) => {
+    const systolic = l.blood_pressure ? parseInt(l.blood_pressure.split("/")[0]) : 0;
+    return isNaN(systolic) ? 0 : systolic;
+  });
+
+  const glucoseValues = ordered.map((l) =>
+    l.glucose_level != null ? l.glucose_level : 0
+  );
+
+  const values = metric === "bp" ? bpValues : glucoseValues;
+  const max = Math.max(...values, 1);
+  const color = metric === "bp" ? "bg-primary" : "bg-teal-500";
+  const label = metric === "bp" ? "Systolic BP" : "Glucose";
+  const unit = metric === "bp" ? "mmHg" : "mg/dL";
 
   return (
     <section className="glass-card p-5 rounded-2xl">
@@ -69,34 +87,43 @@ const TrendsChart: React.FC = () => {
         </div>
         <select
           value={metric}
-          onChange={(e) => setMetric(e.target.value as Metric)}
+          onChange={(e) => setMetric(e.target.value as "bp" | "glucose")}
           className="text-[10px] font-bold text-slate-500 bg-slate-50 border-none rounded-lg px-2 py-1 outline-none"
         >
           <option value="bp">Blood Pressure</option>
           <option value="glucose">Glucose</option>
         </select>
       </div>
-      <p className="text-[10px] text-slate-400 font-medium mb-4">Based on your last 7 logs (mock)</p>
-      <div className="flex items-end justify-between gap-2 px-1" style={{ height: "9rem" }}>
-        {active.values.map((val, i) => {
-          const heightPct = (val / max) * 80;
-          const isHighest = val === max;
-          return (
-            <div key={i} className="flex-1 flex flex-col items-end justify-end gap-1 h-full">
-              <span className={`text-[9px] font-bold ${isHighest ? "text-primary" : "text-slate-400"}`}>
-                {val}
-              </span>
-              <div
-                className={`w-full rounded-t-lg transition-all duration-500 ${isHighest ? active.color : "bg-slate-100"}`}
-                style={{ height: `${heightPct}%` }}
-              />
-              <span className="text-[8px] font-bold text-slate-400 uppercase">{DAYS[i]}</span>
-            </div>
-          );
-        })}
-      </div>
+      <p className="text-[10px] text-slate-400 font-medium mb-4">
+        Based on your last {ordered.length} log{ordered.length !== 1 ? "s" : ""}
+      </p>
+
+      {ordered.length === 0 ? (
+        <p className="text-center text-xs text-slate-400 py-8">No data yet — add a clinical record to see trends.</p>
+      ) : (
+        <div className="flex items-end justify-between gap-2 px-1" style={{ height: "9rem" }}>
+          {values.map((val, i) => {
+            const heightPct = (val / max) * 80;
+            const isHighest = val === max;
+            return (
+              <div key={i} className="flex-1 flex flex-col items-end justify-end gap-1 h-full">
+                <span className={`text-[9px] font-bold ${isHighest ? "text-primary" : "text-slate-400"}`}>
+                  {val || "—"}
+                </span>
+                <div
+                  className={`w-full rounded-t-lg transition-all duration-500 ${isHighest ? color : "bg-slate-100"}`}
+                  style={{ height: val ? `${heightPct}%` : "4px" }}
+                />
+                <span className="text-[8px] font-bold text-slate-400 uppercase">
+                  {dayLetter(ordered[i].created_at)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <p className="text-[10px] text-slate-400 text-right mt-2 font-medium">
-        {active.label} · {active.unit}
+        {label} · {unit}
       </p>
     </section>
   );
@@ -110,6 +137,26 @@ const Dashboard: React.FC = () => {
   const { supplements, schedule, toggleSupplement, toggleScheduleItem } = useHealthPlan();
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const [dashData, setDashData] = useState<DashboardData | null>(null);
+  const [trendLogs, setTrendLogs] = useState<HealthLogEntry[]>([]);
+
+  const fetchDashboard = useCallback(async () => {
+    try {
+      const [dash, logs] = await Promise.all([
+        dashboardApi.get(),
+        healthLogsApi.getAll(0, 7),
+      ]);
+      setDashData(dash);
+      setTrendLogs(logs);
+    } catch {
+      // silently keep previous state; user can still interact
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
+
   const handleLogout = () => {
     if (window.confirm("Are you sure you want to sign out?")) {
       logout();
@@ -117,23 +164,45 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  // Derive real vitals from most recent log
+  const latestLog = dashData?.recent_logs[0];
+  const latestBP = latestLog?.blood_pressure || null;
+  const latestGlucose = latestLog?.glucose_level != null ? String(latestLog.glucose_level) : null;
+  const latestSymptom = dashData?.latest_symptom || null;
+
+  // Determine if glucose is elevated
+  const glucoseNum = latestGlucose ? parseFloat(latestGlucose) : null;
+  const glucoseStatus = glucoseNum == null ? "—" : glucoseNum > 120 ? "Elevated" : glucoseNum < 70 ? "Low" : "Normal";
+  const glucoseStatusColor =
+    glucoseStatus === "Elevated" ? "text-amber-600 bg-amber-50"
+    : glucoseStatus === "Low" ? "text-blue-600 bg-blue-50"
+    : "text-green-600 bg-green-50";
+
+  // BP status
+  const bpSystolic = latestBP ? parseInt(latestBP.split("/")[0]) : null;
+  const bpStatus = bpSystolic == null ? "—" : bpSystolic > 140 ? "Elevated" : bpSystolic < 90 ? "Low" : "Normal";
+  const bpStatusColor =
+    bpStatus === "Elevated" ? "text-amber-600 bg-amber-50"
+    : bpStatus === "Low" ? "text-blue-600 bg-blue-50"
+    : "text-green-600 bg-green-50";
+
   const vitals = [
     {
       title: "Blood Pressure",
-      value: "122/80",
+      value: latestBP || "—",
       unit: "mmHg",
-      status: "Normal",
-      statusColor: "text-green-600 bg-green-50",
+      status: bpStatus,
+      statusColor: bpStatusColor,
       icon: Activity,
       color: "text-blue-600",
       bg: "bg-blue-50",
     },
     {
       title: "Glucose",
-      value: "105",
+      value: latestGlucose || "—",
       unit: "mg/dL",
-      status: "Elevated",
-      statusColor: "text-amber-600 bg-amber-50",
+      status: glucoseStatus,
+      statusColor: glucoseStatusColor,
       icon: Droplets,
       color: "text-teal-600",
       bg: "bg-teal-50",
@@ -161,18 +230,8 @@ const Dashboard: React.FC = () => {
   ];
 
   const devices = [
-    {
-      name: "Smart BP Cuff",
-      status: "Connected",
-      icon: Bluetooth,
-      color: "text-blue-500",
-    },
-    {
-      name: "GlucoCheck Pro",
-      status: "Last sync 2h ago",
-      icon: Smartphone,
-      color: "text-slate-400",
-    },
+    { name: "Smart BP Cuff", status: "Connected", icon: Bluetooth, color: "text-blue-500" },
+    { name: "GlucoCheck Pro", status: "Last sync 2h ago", icon: Smartphone, color: "text-slate-400" },
   ];
 
   const upcomingItems = [...schedule]
@@ -181,6 +240,25 @@ const Dashboard: React.FC = () => {
     .slice(0, 4);
 
   const pendingSupplements = supplements.filter((s) => !s.taken);
+
+  const showAlert =
+    latestSymptom ||
+    glucoseStatus === "Elevated" ||
+    bpStatus === "Elevated";
+
+  const alertMessage = latestSymptom
+    ? latestSymptom
+    : glucoseStatus === "Elevated"
+    ? `Your last glucose reading (${latestGlucose} mg/dL) is slightly above your target range. Consider a light walk.`
+    : bpStatus === "Elevated"
+    ? `Your last blood pressure reading (${latestBP} mmHg) is above your target range. Rest and monitor closely.`
+    : "";
+
+  const alertTitle = latestSymptom
+    ? "Latest Symptom Reported"
+    : glucoseStatus === "Elevated"
+    ? "Elevated Glucose Alert"
+    : "Elevated BP Alert";
 
   return (
     <div className="pb-24 bg-slate-50 min-h-screen animate-fade-in">
@@ -204,7 +282,9 @@ const Dashboard: React.FC = () => {
         <div className="flex items-center gap-2">
           <button className="p-2 bg-slate-100 rounded-full relative min-h-[44px] min-w-[44px] flex items-center justify-center active:scale-[0.98] transition-transform duration-150">
             <AlertCircle className="w-5 h-5 text-slate-600" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+            {showAlert && (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+            )}
           </button>
           <button
             onClick={handleLogout}
@@ -217,18 +297,18 @@ const Dashboard: React.FC = () => {
       </header>
 
       <main className="p-6 space-y-6">
-        {/* Health Alerts */}
-        <section className="bg-red-50 border border-red-100 p-4 rounded-2xl flex items-start gap-4">
-          <div className="w-10 h-10 bg-red-500 rounded-xl flex items-center justify-center shrink-0">
-            <AlertCircle className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-red-900">Elevated Glucose Alert</h2>
-            <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
-              Your last glucose reading (105 mg/dL) is slightly above your target range. Consider a light walk.
-            </p>
-          </div>
-        </section>
+        {/* Health Alert — only shown when there's real data to alert on */}
+        {showAlert && (
+          <section className="bg-red-50 border border-red-100 p-4 rounded-2xl flex items-start gap-4">
+            <div className="w-10 h-10 bg-red-500 rounded-xl flex items-center justify-center shrink-0">
+              <AlertCircle className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-red-900">{alertTitle}</h2>
+              <p className="text-xs text-red-700 mt-0.5 leading-relaxed">{alertMessage}</p>
+            </div>
+          </section>
+        )}
 
         {/* Vitals Grid */}
         <section>
@@ -359,7 +439,7 @@ const Dashboard: React.FC = () => {
           </ul>
         </section>
 
-        <TrendsChart />
+        <TrendsChart logs={trendLogs} />
 
         {/* Device Connectivity */}
         <section>
@@ -415,7 +495,10 @@ const Dashboard: React.FC = () => {
       <HealthLogModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSave={(entry) => console.log("New entry saved:", entry)}
+        onSaved={(newLog) => {
+          setTrendLogs((prev) => [newLog, ...prev].slice(0, 7));
+          fetchDashboard();
+        }}
       />
     </div>
   );

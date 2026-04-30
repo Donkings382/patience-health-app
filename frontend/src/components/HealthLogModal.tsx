@@ -1,58 +1,58 @@
 import React, { useState, useEffect } from "react";
-import { X, Calendar, Activity, Droplets } from "lucide-react";
+import { X, Activity, Droplets, Loader2 } from "lucide-react";
+import { healthLogsApi, HealthLogEntry } from "../services/api";
 
-interface HealthEntry {
-  id: string;
-  date: string;
+type FormData = {
   systolic: string;
   diastolic: string;
   glucose: string;
   notes: string;
-  status: "Normal" | "Elevated" | "Low";
-}
-
-type FormData = Omit<HealthEntry, "id" | "status">;
+};
 
 interface HealthLogModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (entry: HealthEntry) => void;
+  onSaved: (entry: HealthLogEntry) => void;
 }
 
-const calculateStatus = (systolic: string, glucose: string): HealthEntry["status"] => {
-  const s = parseInt(systolic);
-  const g = parseInt(glucose);
-  if (s > 140 || g > 120) return "Elevated";
-  if (s < 90 || g < 70) return "Low";
-  return "Normal";
-};
-
 const emptyForm = (): FormData => ({
-  date: new Date().toISOString().split("T")[0],
   systolic: "",
   diastolic: "",
   glucose: "",
   notes: "",
 });
 
-const HealthLogModal: React.FC<HealthLogModalProps> = ({ isOpen, onClose, onSave }) => {
+const HealthLogModal: React.FC<HealthLogModalProps> = ({ isOpen, onClose, onSaved }) => {
   const [formData, setFormData] = useState<FormData>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen) setFormData(emptyForm());
+    if (isOpen) {
+      setFormData(emptyForm());
+      setError(null);
+    }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const entry: HealthEntry = {
-      ...formData,
-      id: Math.random().toString(36).substr(2, 9),
-      status: calculateStatus(formData.systolic, formData.glucose),
-    };
-    onSave(entry);
-    onClose();
+    setSaving(true);
+    setError(null);
+    try {
+      const created = await healthLogsApi.create({
+        blood_pressure: `${formData.systolic}/${formData.diastolic}`,
+        glucose_level: formData.glucose ? parseFloat(formData.glucose) : undefined,
+        symptoms: formData.notes || undefined,
+      });
+      onSaved(created);
+      onClose();
+    } catch {
+      setError("Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const field = (key: keyof FormData, value: string) =>
@@ -79,22 +79,11 @@ const HealthLogModal: React.FC<HealthLogModalProps> = ({ isOpen, onClose, onSave
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Date */}
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-              Observation Date
-            </label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="date"
-                value={formData.date}
-                onChange={(e) => field("date", e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-                required
-              />
-            </div>
-          </div>
+          {error && (
+            <p className="text-xs text-red-500 font-medium bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+              {error}
+            </p>
+          )}
 
           {/* BP */}
           <div className="grid grid-cols-2 gap-4">
@@ -162,8 +151,10 @@ const HealthLogModal: React.FC<HealthLogModalProps> = ({ isOpen, onClose, onSave
 
           <button
             type="submit"
-            className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all uppercase tracking-widest text-xs"
+            disabled={saving}
+            className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all uppercase tracking-widest text-xs disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
             Save Clinical Record
           </button>
         </form>

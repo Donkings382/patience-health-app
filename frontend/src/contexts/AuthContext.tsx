@@ -1,110 +1,63 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { authApi, ApiUser, getToken, setToken, clearToken } from "../services/api";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type User = {
-  id: string;
-  name: string;
-  email: string;
-};
-
-type StoredUser = User & { password: string };
+export type User = ApiUser;
 
 type AuthContextType = {
   user: User | null;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 };
-
-// ─── Storage helpers ──────────────────────────────────────────────────────────
-
-const KEYS = {
-  currentUser: "healthAppUser",
-  allUsers: "healthAppUsers",
-} as const;
-
-function getStoredUsers(): StoredUser[] {
-  try {
-    const raw = localStorage.getItem(KEYS.allUsers);
-    return raw ? (JSON.parse(raw) as StoredUser[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveStoredUsers(users: StoredUser[]): void {
-  localStorage.setItem(KEYS.allUsers, JSON.stringify(users));
-}
-
-function getCurrentUser(): User | null {
-  try {
-    const raw = localStorage.getItem(KEYS.currentUser);
-    return raw ? (JSON.parse(raw) as User) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveCurrentUser(user: User): void {
-  localStorage.setItem(KEYS.currentUser, JSON.stringify(user));
-}
-
-// ─── Context ──────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// ─── Provider ─────────────────────────────────────────────────────────────────
-
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const persisted = getCurrentUser();
-    if (persisted) setUser(persisted);
+    const token = getToken();
+    if (token) {
+      authApi.me()
+        .then(setUser)
+        .catch(() => clearToken())
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   const login = async (email: string, password: string): Promise<void> => {
-    const users = getStoredUsers();
-    const match = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-    );
-    if (!match) throw new Error("Invalid credentials");
-
-    const { password: _omit, ...safeUser } = match;
-    saveCurrentUser(safeUser);
-    setUser(safeUser);
+    const res = await authApi.login(email, password);
+    setToken(res.access_token);
+    setUser(res.user);
   };
 
   const signup = async (name: string, email: string, password: string): Promise<void> => {
-    const users = getStoredUsers();
-    const exists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (exists) throw new Error("An account with this email already exists");
-
-    const newUser: StoredUser = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
-      password,
-    };
-
-    saveStoredUsers([...users, newUser]);
-    await login(email, password);
+    const res = await authApi.signup(name, email, password);
+    setToken(res.access_token);
+    setUser(res.user);
   };
 
   const logout = (): void => {
-    localStorage.removeItem(KEYS.currentUser);
+    clearToken();
     setUser(null);
   };
 
+  const refreshUser = async (): Promise<void> => {
+    const updated = await authApi.me();
+    setUser(updated);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
 };
-
-// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useAuth(): AuthContextType {
   const ctx = useContext(AuthContext);

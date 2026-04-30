@@ -15,7 +15,14 @@ import BottomNavBar from "./components/BottomNavBar";
 import { useAuth } from "./contexts/AuthContext";
 
 const ProtectedRoute: React.FC<{ element: React.ReactElement }> = ({ element }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
   return user ? element : <Navigate to="/login" replace />;
 };
 
@@ -40,7 +47,7 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+    <Router>
       <AppContent />
     </Router>
   );

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Plus,
   Edit2,
@@ -13,11 +13,15 @@ import {
   FileText,
   Pill,
   CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { useHealthPlan } from "../hooks/useHealthPlan";
+import { healthLogsApi, HealthLogEntry } from "../services/api";
+
+// ─── Local display type ───────────────────────────────────────────────────────
 
 interface HealthEntry {
-  id: string;
+  id: number;
   date: string;
   systolic: string;
   diastolic: string;
@@ -26,52 +30,87 @@ interface HealthEntry {
   status: "Normal" | "Elevated" | "Low";
 }
 
+type FormData = {
+  systolic: string;
+  diastolic: string;
+  glucose: string;
+  notes: string;
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const today = new Date().toLocaleDateString("en-US", {
   weekday: "long",
   month: "long",
   day: "numeric",
 });
 
+function calculateStatus(systolic: string, glucose: string): HealthEntry["status"] {
+  const s = parseInt(systolic);
+  const g = parseInt(glucose);
+  if (s > 140 || g > 120) return "Elevated";
+  if (s < 90 || g < 70) return "Low";
+  return "Normal";
+}
+
+function fromApi(log: HealthLogEntry): HealthEntry {
+  const parts = (log.blood_pressure || "").split("/");
+  const systolic = parts[0] || "";
+  const diastolic = parts[1] || "";
+  const glucose = log.glucose_level != null ? String(log.glucose_level) : "";
+  const date = log.created_at.split("T")[0];
+  return {
+    id: log.id,
+    date,
+    systolic,
+    diastolic,
+    glucose,
+    notes: log.symptoms || "",
+    status: calculateStatus(systolic, glucose),
+  };
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 const HealthLog: React.FC = () => {
   const { supplements } = useHealthPlan();
   const takenCount = supplements.filter((s) => s.taken).length;
   const totalCount = supplements.length;
 
-  const [entries, setEntries] = useState<HealthEntry[]>([
-    {
-      id: "1",
-      date: "2026-04-15",
-      systolic: "122",
-      diastolic: "80",
-      glucose: "98",
-      notes: "Feeling good after morning walk",
-      status: "Normal",
-    },
-    {
-      id: "2",
-      date: "2026-04-14",
-      systolic: "118",
-      diastolic: "76",
-      glucose: "105",
-      notes: "Slightly high glucose after lunch",
-      status: "Elevated",
-    },
-  ]);
+  const [entries, setEntries] = useState<HealthEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<HealthEntry | null>(null);
-  const [formData, setFormData] = useState<Omit<HealthEntry, "id" | "status">>({
-    date: new Date().toISOString().split("T")[0],
+  const [formData, setFormData] = useState<FormData>({
     systolic: "",
     diastolic: "",
     glucose: "",
     notes: "",
   });
 
+  const fetchLogs = useCallback(async () => {
+    try {
+      setError(null);
+      const logs = await healthLogsApi.getAll(0, 50);
+      setEntries(logs.map(fromApi));
+    } catch {
+      setError("Failed to load health logs.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
+
   const handleOpenModal = (entry?: HealthEntry) => {
     if (entry) {
       setEditingEntry(entry);
       setFormData({
-        date: entry.date,
         systolic: entry.systolic,
         diastolic: entry.diastolic,
         glucose: entry.glucose,
@@ -79,40 +118,46 @@ const HealthLog: React.FC = () => {
       });
     } else {
       setEditingEntry(null);
-      setFormData({
-        date: new Date().toISOString().split("T")[0],
-        systolic: "",
-        diastolic: "",
-        glucose: "",
-        notes: "",
-      });
+      setFormData({ systolic: "", diastolic: "", glucose: "", notes: "" });
     }
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm("Are you sure you want to delete this clinical record?")) {
-      setEntries(entries.filter((e) => e.id !== id));
+  const handleDelete = async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this clinical record?")) return;
+    try {
+      await healthLogsApi.delete(id);
+      setEntries((prev) => prev.filter((e) => e.id !== id));
+    } catch {
+      alert("Failed to delete record. Please try again.");
     }
   };
 
-  const calculateStatus = (systolic: string, glucose: string): "Normal" | "Elevated" | "Low" => {
-    const s = parseInt(systolic);
-    const g = parseInt(glucose);
-    if (s > 140 || g > 120) return "Elevated";
-    if (s < 90 || g < 70) return "Low";
-    return "Normal";
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const status = calculateStatus(formData.systolic, formData.glucose);
-    if (editingEntry) {
-      setEntries(entries.map((e) => (e.id === editingEntry.id ? { ...formData, id: e.id, status } : e)));
-    } else {
-      setEntries([{ ...formData, id: Math.random().toString(36).substr(2, 9), status }, ...entries]);
+    setSaving(true);
+    setError(null);
+    const payload = {
+      blood_pressure: `${formData.systolic}/${formData.diastolic}`,
+      glucose_level: formData.glucose ? parseFloat(formData.glucose) : undefined,
+      symptoms: formData.notes || undefined,
+    };
+    try {
+      if (editingEntry) {
+        const updated = await healthLogsApi.update(editingEntry.id, payload);
+        setEntries((prev) =>
+          prev.map((e) => (e.id === editingEntry.id ? fromApi(updated) : e))
+        );
+      } else {
+        const created = await healthLogsApi.create(payload);
+        setEntries((prev) => [fromApi(created), ...prev]);
+      }
+      setIsModalOpen(false);
+    } catch {
+      setError("Failed to save record. Please try again.");
+    } finally {
+      setSaving(false);
     }
-    setIsModalOpen(false);
   };
 
   return (
@@ -174,10 +219,7 @@ const HealthLog: React.FC = () => {
               <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
             )}
           </div>
-          <button
-            onClick={() => console.log("View all supplement history")}
-            className="w-full py-2.5 min-h-[44px] bg-slate-50 border-t border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center gap-1 active:scale-[0.98] transition-transform duration-150 hover:bg-slate-100"
-          >
+          <button className="w-full py-2.5 min-h-[44px] bg-slate-50 border-t border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-center gap-1 active:scale-[0.98] transition-transform duration-150 hover:bg-slate-100">
             View all supplement history <ChevronRight className="w-3 h-3" />
           </button>
         </section>
@@ -185,7 +227,22 @@ const HealthLog: React.FC = () => {
         {/* Section label */}
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Clinical Records</p>
 
-        {entries.length === 0 ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            <p className="text-xs text-slate-400 font-medium">Loading records…</p>
+          </div>
+        ) : error ? (
+          <div className="text-center py-12">
+            <p className="text-sm text-red-500 font-medium">{error}</p>
+            <button
+              onClick={fetchLogs}
+              className="mt-3 text-xs text-primary font-bold underline"
+            >
+              Try again
+            </button>
+          </div>
+        ) : entries.length === 0 ? (
           <div className="text-center py-20">
             <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <FileText className="w-10 h-10 text-slate-300" />
@@ -208,7 +265,7 @@ const HealthLog: React.FC = () => {
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                          {new Date(entry.date).toLocaleDateString("en-US", {
+                          {new Date(entry.date + "T00:00:00").toLocaleDateString("en-US", {
                             month: "short",
                             day: "numeric",
                             year: "numeric",
@@ -251,7 +308,9 @@ const HealthLog: React.FC = () => {
                       <div>
                         <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">BP</p>
                         <p className="text-sm font-bold text-slate-900">
-                          {entry.systolic}/{entry.diastolic}{" "}
+                          {entry.systolic && entry.diastolic
+                            ? `${entry.systolic}/${entry.diastolic}`
+                            : "—"}{" "}
                           <span className="text-[10px] text-slate-400 font-medium">mmHg</span>
                         </p>
                       </div>
@@ -263,7 +322,7 @@ const HealthLog: React.FC = () => {
                       <div>
                         <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Glucose</p>
                         <p className="text-sm font-bold text-slate-900">
-                          {entry.glucose}{" "}
+                          {entry.glucose || "—"}{" "}
                           <span className="text-[10px] text-slate-400 font-medium">mg/dL</span>
                         </p>
                       </div>
@@ -307,21 +366,11 @@ const HealthLog: React.FC = () => {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-5">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                  Observation Date
-                </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
-                    required
-                  />
-                </div>
-              </div>
+              {error && (
+                <p className="text-xs text-red-500 font-medium bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                  {error}
+                </p>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -380,8 +429,10 @@ const HealthLog: React.FC = () => {
 
               <button
                 type="submit"
-                className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all uppercase tracking-widest text-xs"
+                disabled={saving}
+                className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all uppercase tracking-widest text-xs disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                 {editingEntry ? "Update Clinical Record" : "Save Clinical Record"}
               </button>
             </form>
